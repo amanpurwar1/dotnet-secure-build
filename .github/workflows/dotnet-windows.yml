@@ -58,12 +58,12 @@ jobs:
         run: |
           dotnet test src/MyApp/MyApp/MyApp.csproj --configuration Release --no-build --verbosity normal
 
-      # - name: Generate Build Hash
-      #   id: hash
-      #   run: |
-      #     $buildHash = (Get-FileHash -Path "build-hashes.txt" -Algorithm SHA256).Hash
-      #     echo "build_sha=$buildHash" >> $env:GITHUB_OUTPUT
-      #     echo "Build Hash: $buildHash" >> build-manifest.txt
+      - name: Generate Build Hash
+        id: hash
+        run: |
+          $buildHash = (Get-FileHash -Path "build-hashes.txt" -Algorithm SHA256).Hash
+          echo "build_sha=$buildHash" >> $env:GITHUB_OUTPUT
+          echo "Build Hash: $buildHash" >> build-manifest.txt
 
       # - name: Create Attestation
       #   run: |

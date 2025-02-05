@@ -93,17 +93,18 @@ jobs:
       #     }
       #     $attestation | ConvertTo-Json -Depth 10 > attestation.json
 
-      # - name: Upload Build Artifacts
-      #   uses: actions/upload-artifact@v4
-      #   with:
-      #     name: secure-build
-      #     path: |
-      #       src/MyApp/MyApp/bin/Release/
-      #       build-manifest.txt
-      #       build-hashes.txt
-      #       dependencies.txt
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: secure-build
+          path: |
+            src/MyApp/MyApp/bin/Release/
+            build-manifest.txt
+            build-hashes.txt
+            dependencies.txt
+            retention-days: 7
       #       attestation.json
-      #     retention-days: 7
+            
 
       # - name: Upload Build Manifest to Security Tab
       #   uses: github/codeql-action/upload-sarif@v2

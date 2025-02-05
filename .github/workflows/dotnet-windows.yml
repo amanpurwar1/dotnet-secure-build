@@ -11,6 +11,7 @@ on:
 permissions:
   id-token: write  # Required for signing
   contents: read
+  actions: read    # Required for SLSA provenance
 
 jobs:
   build-and-test:
@@ -56,11 +57,13 @@ jobs:
           retention-days: 7  # Keep for a short period to reduce risk
 
       - name: Generate SLSA Provenance
-        uses: slsa-framework/slsa-github-generator/.github/actions/generator@v1
+        uses: slsa-framework/slsa-github-generator/actions/generator@v2.1.0
         with:
-          upload-assets: true
-          provenance-name: provenance.json
+          base64-subjects: "${{ needs.build.outputs.hashes }}"
+          provenance-name: "multiple-provenance.intoto.jsonl"
+          attestation-name: "multiple-attestation.intoto.jsonl"
 
       - name: Verify SLSA Provenance
         run: |
-          cat provenance.json  # Ensure provenance file exists
+          cat multiple-provenance.intoto.jsonl
+          cat multiple-attestation.intoto.jsonl

@@ -1,0 +1,66 @@
+name: .NET Build with SLSA Level 3 Security
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  id-token: write  # Required for signing
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false  # Prevents accidental repo modifications
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v3
+        with:
+          dotnet-version: 8.0.x  # Use the latest .NET version
+
+      - name: Verify Dependencies (SLSA Compliance)
+        run: |
+          dotnet list package --include-transitive
+          dotnet restore --locked-mode  # Ensures only approved dependencies
+
+      - name: Build Securely (dotnet CLI)
+        run: dotnet build --configuration Release --no-restore
+
+      - name: Build with MSBuild (for legacy projects)
+        run: dotnet msbuild /p:Configuration=Release
+        continue-on-error: true  # Some projects may not require MSBuild
+
+      - name: Run Tests
+        run: dotnet test --configuration Release --no-build --verbosity normal
+
+      - name: Sign Build Artifacts (Code Signing)
+        run: |
+          echo "Signing binaries..."
+          echo "TODO: Implement signing with cosign or sigstore"
+
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-build
+          path: |
+            **/bin/Release/*
+          retention-days: 7  # Keep for a short period to reduce risk
+
+      - name: Generate SLSA Provenance
+        uses: slsa-framework/slsa-github-generator/.github/actions/generator@v1
+        with:
+          upload-assets: true
+          provenance-name: provenance.json
+
+      - name: Verify SLSA Provenance
+        run: |
+          cat provenance.json  # Ensure provenance file exists

@@ -56,14 +56,14 @@ jobs:
             **/bin/Release/*
           retention-days: 7  # Keep for a short period to reduce risk
 
-      - name: Generate SLSA Provenance
-        uses: slsa-framework/slsa-github-generator/generic@v1.9.0
-        with:
-          base64-subjects: "${{ needs.build.outputs.hashes }}"
-          provenance-name: "multiple-provenance.intoto.jsonl"
-          attestation-name: "multiple-attestation.intoto.jsonl"
+      # - name: Generate SLSA Provenance
+      #   uses: slsa-framework/slsa-github-generator/generic@v1.9.0
+      #   with:
+      #     base64-subjects: "${{ needs.build.outputs.hashes }}"
+      #     provenance-name: "multiple-provenance.intoto.jsonl"
+      #     attestation-name: "multiple-attestation.intoto.jsonl"
 
-      - name: Verify SLSA Provenance
-        run: |
-          cat multiple-provenance.intoto.jsonl
-          cat multiple-attestation.intoto.jsonl
+      # - name: Verify SLSA Provenance
+      #   run: |
+      #     cat multiple-provenance.intoto.jsonl
+      #     cat multiple-attestation.intoto.jsonl

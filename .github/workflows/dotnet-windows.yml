@@ -57,7 +57,7 @@ jobs:
           retention-days: 7  # Keep for a short period to reduce risk
 
       - name: Generate SLSA Provenance
-        uses: slsa-framework/slsa-github-generator/actions/generator@v1.9.0
+        uses: slsa-framework/slsa-github-generator/generic@v1.9.0
         with:
           base64-subjects: "${{ needs.build.outputs.hashes }}"
           provenance-name: "multiple-provenance.intoto.jsonl"

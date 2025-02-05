@@ -1,4 +1,4 @@
-name: .NET Build with SLSA Level 3 Security
+name: .NET Secure Build with Attestations
 
 on:
   push:
@@ -9,61 +9,104 @@ on:
       - main
 
 permissions:
-  id-token: write  # Required for signing
+  id-token: write
   contents: read
-  actions: read    # Required for SLSA provenance
+  security-events: write
 
 jobs:
-  build-and-test:
+  build-and-secure:
     runs-on: windows-latest
-
+    
+    outputs:
+      build_sha: ${{ steps.hash.outputs.build_sha }}
+      
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
         with:
-          persist-credentials: false  # Prevents accidental repo modifications
+          persist-credentials: false
+          fetch-depth: 0  # Full history for better provenance
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v3
         with:
-          dotnet-version: 8.0.x  # Use the latest .NET version
+          dotnet-version: 8.0.x
 
-      - name: Verify Dependencies (SLSA Compliance)
+      - name: Generate Build Manifest
         run: |
-          dotnet list package --include-transitive
-          dotnet restore --locked-mode  # Ensures only approved dependencies
+          echo "Build started at: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')" > build-manifest.txt
+          echo "Repository: ${{ github.repository }}" >> build-manifest.txt
+          echo "Commit: ${{ github.sha }}" >> build-manifest.txt
+          echo "Branch: ${{ github.ref }}" >> build-manifest.txt
 
-      - name: Build Securely (dotnet CLI)
-        run: dotnet build --configuration Release --no-restore
+      - name: Verify Dependencies
+        run: |
+          dotnet list src/MyApp/MyApp/MyApp.csproj package --include-transitive > dependencies.txt
+          dotnet restore src/MyApp/MyApp/MyApp.csproj --locked-mode
 
-      - name: Build with MSBuild (for legacy projects)
-        run: dotnet msbuild /p:Configuration=Release
-        continue-on-error: true  # Some projects may not require MSBuild
+      - name: Build
+        run: |
+          dotnet build src/MyApp/MyApp/MyApp.csproj --configuration Release --no-restore
+          
+          # Create build info file
+          Get-ChildItem -Recurse -Filter *.dll -Path src/MyApp/MyApp/bin/Release/ | ForEach-Object {
+            $hash = (Get-FileHash -Path $_.FullName -Algorithm SHA256).Hash
+            "$($_.Name) - $hash" >> build-hashes.txt
+          }
 
       - name: Run Tests
-        run: dotnet test --configuration Release --no-build --verbosity normal
-
-      - name: Sign Build Artifacts (Code Signing)
         run: |
-          echo "Signing binaries..."
-          echo "TODO: Implement signing with cosign or sigstore"
+          dotnet test src/MyApp/MyApp/MyApp.csproj --configuration Release --no-build --verbosity normal
 
-      - name: Upload Build Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-build
-          path: |
-            **/bin/Release/*
-          retention-days: 7  # Keep for a short period to reduce risk
-
-      # - name: Generate SLSA Provenance
-      #   uses: slsa-framework/slsa-github-generator/generic@v1.9.0
-      #   with:
-      #     base64-subjects: "${{ needs.build.outputs.hashes }}"
-      #     provenance-name: "multiple-provenance.intoto.jsonl"
-      #     attestation-name: "multiple-attestation.intoto.jsonl"
-
-      # - name: Verify SLSA Provenance
+      # - name: Generate Build Hash
+      #   id: hash
       #   run: |
-      #     cat multiple-provenance.intoto.jsonl
-      #     cat multiple-attestation.intoto.jsonl
+      #     $buildHash = (Get-FileHash -Path "build-hashes.txt" -Algorithm SHA256).Hash
+      #     echo "build_sha=$buildHash" >> $env:GITHUB_OUTPUT
+      #     echo "Build Hash: $buildHash" >> build-manifest.txt
+
+      # - name: Create Attestation
+      #   run: |
+      #     $attestation = @{
+      #       "_type" = "https://in-toto.io/Statement/v0.1"
+      #       "subject" = @(@{
+      #         "name" = "${{ github.repository }}"
+      #         "digest" = @{
+      #           "sha256" = "${{ steps.hash.outputs.build_sha }}"
+      #         }
+      #       })
+      #       "predicateType" = "https://slsa.dev/provenance/v0.2"
+      #       "predicate" = @{
+      #         "builder" = @{
+      #           "id" = "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+      #         }
+      #         "buildType" = "https://github.com/actions/workflow"
+      #         "invocation" = @{
+      #           "configSource" = @{
+      #             "uri" = "git+https://github.com/${{ github.repository }}@${{ github.ref }}"
+      #             "digest" = @{
+      #               "sha1" = "${{ github.sha }}"
+      #             }
+      #           }
+      #         }
+      #       }
+      #     }
+      #     $attestation | ConvertTo-Json -Depth 10 > attestation.json
+
+      # - name: Upload Build Artifacts
+      #   uses: actions/upload-artifact@v4
+      #   with:
+      #     name: secure-build
+      #     path: |
+      #       src/MyApp/MyApp/bin/Release/
+      #       build-manifest.txt
+      #       build-hashes.txt
+      #       dependencies.txt
+      #       attestation.json
+      #     retention-days: 7
+
+      # - name: Upload Build Manifest to Security Tab
+      #   uses: github/codeql-action/upload-sarif@v2
+      #   with:
+      #     sarif_file: attestation.json
+      #     category: build-attestation

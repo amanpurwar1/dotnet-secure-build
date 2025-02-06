@@ -102,7 +102,7 @@ jobs:
             build-manifest.txt
             build-hashes.txt
             dependencies.txt
-            retention-days: 7
+            retention-days: 10
       #       attestation.json
             
 

@@ -58,40 +58,37 @@ jobs:
         run: |
           dotnet test src/MyApp/MyApp/MyApp.csproj --configuration Release --no-build --verbosity normal
 
+      - name: WhiteSource Scan
+        env:
+          WS_APIKEY: ${{ secrets.WHITESOURCE_API_KEY }}
+          WS_USERKEY: ${{ secrets.WHITESOURCE_USER_KEY }}
+          WS_PROJECTNAME: ${{ github.repository }}
+          WS_PRODUCTNAME: "MyApp"
+        run: |
+          # Download WhiteSource Unified Agent
+          Invoke-WebRequest -Uri https://unified-agent.s3.amazonaws.com/wss-unified-agent.jar -OutFile wss-unified-agent.jar
+          
+          # Create config file
+          @"
+          resolveAllDependencies=true
+          projectName=${env:WS_PROJECTNAME}
+          productName=${env:WS_PRODUCTNAME}
+          wss.url=https://saas.whitesourcesoftware.com/agent
+          includes=**/*.dll
+          "@ | Out-File -FilePath wss-unified-agent.config -Encoding UTF8
+          
+          # Run WhiteSource scan
+          java -jar wss-unified-agent.jar -c wss-unified-agent.config -d src/MyApp/MyApp/bin/Release/
+          
+          # Add scan results to build manifest
+          echo "WhiteSource Scan completed at: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')" >> build-manifest.txt
+
       - name: Generate Build Hash
         id: hash
         run: |
           $buildHash = (Get-FileHash -Path "build-hashes.txt" -Algorithm SHA256).Hash
           echo "build_sha=$buildHash" >> $env:GITHUB_OUTPUT
           echo "Build Hash: $buildHash" >> build-manifest.txt
-
-      # - name: Create Attestation
-      #   run: |
-      #     $attestation = @{
-      #       "_type" = "https://in-toto.io/Statement/v0.1"
-      #       "subject" = @(@{
-      #         "name" = "${{ github.repository }}"
-      #         "digest" = @{
-      #           "sha256" = "${{ steps.hash.outputs.build_sha }}"
-      #         }
-      #       })
-      #       "predicateType" = "https://slsa.dev/provenance/v0.2"
-      #       "predicate" = @{
-      #         "builder" = @{
-      #           "id" = "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-      #         }
-      #         "buildType" = "https://github.com/actions/workflow"
-      #         "invocation" = @{
-      #           "configSource" = @{
-      #             "uri" = "git+https://github.com/${{ github.repository }}@${{ github.ref }}"
-      #             "digest" = @{
-      #               "sha1" = "${{ github.sha }}"
-      #             }
-      #           }
-      #         }
-      #       }
-      #     }
-      #     $attestation | ConvertTo-Json -Depth 10 > attestation.json
 
       - name: Upload Build Artifacts
         uses: actions/upload-artifact@v4
@@ -102,12 +99,5 @@ jobs:
             build-manifest.txt
             build-hashes.txt
             dependencies.txt
-            retention-days: 10
-      #       attestation.json
-            
-
-      # - name: Upload Build Manifest to Security Tab
-      #   uses: github/codeql-action/upload-sarif@v2
-      #   with:
-      #     sarif_file: attestation.json
-      #     category: build-attestation
+            wss-unified-agent.config
+          retention-days: 10

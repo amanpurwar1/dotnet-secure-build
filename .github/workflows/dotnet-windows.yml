@@ -1,4 +1,4 @@
-name: Whitesource Scan & Build
+name: .NET Secure Build
 
 on:
   push:
@@ -7,86 +7,107 @@ on:
   pull_request:
     branches:
       - main
-  workflow_dispatch:  # Manual trigger
+
+permissions:
+  id-token: write
+  contents: read
+  security-events: write
 
 jobs:
-  whitesource:
+  build-and-secure:
     runs-on: windows-latest
-    timeout-minutes: 120
-
+    
+    outputs:
+      build_sha: ${{ steps.hash.outputs.build_sha }}
+      
     steps:
-      - name: Checkout repository
+      - name: Checkout Code
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0  # Full history for better provenance
 
-      - name: Validate Tag Name
-        shell: pwsh
-        run: |
-          if ("${{ github.event.ref }}" -eq "") {
-            Write-Host "Provide a Valid Tag Name"
-            exit 1
-          } else {
-            Write-Host "Tag Name: ${{ github.event.ref }}"
-          }
-
-      - name: Clone Private Repository
-        run: |
-          git clone https://USERNAME:TOKEN@ADOURL/IAutomate/IAutomateBaseCode_NEW/_git/IAutomateBaseCode_GIT --branch ${{ github.ref_name }} --depth=1
-
-      - name: Setup .NET SDK
+      - name: Setup .NET
         uses: actions/setup-dotnet@v3
         with:
-          dotnet-version: '8.0.x'
+          dotnet-version: 8.0.x
 
-      - name: Restore NuGet Packages
+      - name: Generate Build Manifest
         run: |
-          nuget restore IAutomateBaseCode_GIT/SourceCode/abc.iAutomate.ADSyncService/abc.iAutomate.Service.AD.sln
-          nuget restore IAutomateBaseCode_GIT/SourceCode/abc.iAutomate.DataCollector/abc.iAutomate.DataCollector.sln
-          nuget restore IAutomateBaseCode_GIT/SourceCode/abc.iAutomate.EmailService/abc.iAutomate.EmailService.sln
-          nuget restore IAutomateBaseCode_GIT/SourceCode/abc.iAutomate.EmbeddedInstaller/abc.iAutomate.EmbeddedInstaller.sln
+          echo "Build started at: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')" > build-manifest.txt
+          echo "Repository: ${{ github.repository }}" >> build-manifest.txt
+          echo "Commit: ${{ github.sha }}" >> build-manifest.txt
+          echo "Branch: ${{ github.ref }}" >> build-manifest.txt
 
-      - name: Restore NuGet for abc.iAutomate.RbaExecutor
-        run: dotnet restore IAutomateBaseCode_GIT/SourceCode/abc.iAutomate.RbaExecutor/abc.iAutomate.RbaExecutor.sln
-
-      - name: Verify NuGet Packages
-        run: nuget verify -All **/*.nupkg
-        working-directory: IAutomateBaseCode_GIT/SourceCode 
-
-      - name: Install NuGet Package from Azure Feeds
-        run: nuget install ${{ secrets.NUGET_PACKAGE_NAME }} -version ${{ secrets.NUGET_PACKAGE_VERSION }}
-
-      - name: Unzip NuGet Package
-        shell: pwsh
+      - name: Verify Dependencies
         run: |
-          $destination="IAutomateBaseCode_GIT/SourceCode/abc.iAutomate.iRecommend/com/irecommend/nlp/${{ secrets.ZIP_FILE_NAME }}"
-          $fileToUnzip="IAutomateBaseCode_GIT/${{ secrets.NUGET_PACKAGE_NAME }}.${{ secrets.NUGET_PACKAGE_VERSION }}/${{ secrets.ZIP_FILE_NAME }}.zip"
-          Expand-Archive $fileToUnzip -DestinationPath $destination
+          dotnet list src/MyApp/MyApp/MyApp.csproj package --include-transitive > dependencies.txt
+          dotnet restore src/MyApp/MyApp/MyApp.csproj --locked-mode
 
-      - name: Build Solutions
+      - name: Build
         run: |
-          msbuild IAutomateBaseCode_GIT/SourceCode/abc.iAutomate.installer/PreRequisitesChecker.sln /p:Configuration=Release
-          msbuild IAutomateBaseCode_GIT/SourceCode/iAutomateWeb/iAutomateWeb/iAutomateWeb.csproj /p:DeployOnBuild=True /p:Configuration=Release
-          msbuild IAutomateBaseCode_GIT/SourceCode/iAutomateWeb/iAutomateWeb.WebAPI/iAutomateWeb.WebAPI.csproj /p:DeployOnBuild=True /p:Configuration=Release
-          msbuild IAutomateBaseCode_GIT/SourceCode/abc.iAutomate.GenericService/abc.iAutomate.GenericService.sln /p:Configuration=Release
+          dotnet build src/MyApp/MyApp/MyApp.csproj --configuration Release --no-restore
+          
+          # Create build info file
+          Get-ChildItem -Recurse -Filter *.dll -Path src/MyApp/MyApp/bin/Release/ | ForEach-Object {
+            $hash = (Get-FileHash -Path $_.FullName -Algorithm SHA256).Hash
+            "$($_.Name) - $hash" >> build-hashes.txt
+          }
 
-      - name: Build .NET Core Projects
+      - name: Run Tests
         run: |
-          dotnet build IAutomateBaseCode_GIT/SourceCode/abc.iAutomate.RbaExecutor/abc.iAutomate.RbaExecutor.sln --configuration Release
-          dotnet publish IAutomateBaseCode_GIT/SourceCode/abc.iAutomate.RbaExecutor/abc.iAutomate.RbaExecutor.Api/abc.iAutomate.RbaExecutor.Api.csproj -p:PublishProfile=Properties/PublishProfiles/FolderProfile.pubxml --configuration Release --runtime linux-x64 --output bin\Release\net8.0\publish\ --framework net8.0
+          dotnet test src/MyApp/MyApp/MyApp.csproj --configuration Release --no-build --verbosity normal
 
-      - name: Build Additional Solutions
+      - name: Generate Build Hash
+        id: hash
         run: |
-          msbuild IAutomateBaseCode_GIT/SourceCode/iAutomateListner/abc.iAutomate.Listner.sln /p:Configuration=Release
-          msbuild IAutomateBaseCode_GIT/SourceCode/abc.iAutomate.EmailService/abc.iAutomate.EmailService.sln /p:Configuration=Release
-          msbuild IAutomateBaseCode_GIT/SourceCode/Verizon.RBAConnector/Verizon.RBAConnector.sln /p:Configuration=Release
+          $buildHash = (Get-FileHash -Path "build-hashes.txt" -Algorithm SHA256).Hash
+          echo "build_sha=$buildHash" >> $env:GITHUB_OUTPUT
+          echo "Build Hash: $buildHash" >> build-manifest.txt
 
-      - name: Get Scan Date
-        shell: pwsh
-        run: |
-          $date1 = Get-Date -Format dd_MM_yyyy
-          Write-Host "Scan Date: $date1"
-          echo "scandate=$date1" >> $GITHUB_ENV
+      # - name: Create Attestation
+      #   run: |
+      #     $attestation = @{
+      #       "_type" = "https://in-toto.io/Statement/v0.1"
+      #       "subject" = @(@{
+      #         "name" = "${{ github.repository }}"
+      #         "digest" = @{
+      #           "sha256" = "${{ steps.hash.outputs.build_sha }}"
+      #         }
+      #       })
+      #       "predicateType" = "https://slsa.dev/provenance/v0.2"
+      #       "predicate" = @{
+      #         "builder" = @{
+      #           "id" = "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+      #         }
+      #         "buildType" = "https://github.com/actions/workflow"
+      #         "invocation" = @{
+      #           "configSource" = @{
+      #             "uri" = "git+https://github.com/${{ github.repository }}@${{ github.ref }}"
+      #             "digest" = @{
+      #               "sha1" = "${{ github.sha }}"
+      #             }
+      #           }
+      #         }
+      #       }
+      #     }
+      #     $attestation | ConvertTo-Json -Depth 10 > attestation.json
 
-      - name: Whitesource Scan
-        run: |
-          cd IAutomateBaseCode_GIT/SourceCode
-          java -jar "C:\WhiteSource\wss-unified-agent.jar" -c "IAutomateBaseCode_GIT/Devops/wss-unified-agent.config" -apiKey ${{ secrets.WHITESOURCE_API_KEY }} -userKey ${{ secrets.WHITESOURCE_USER_KEY }} -d "." -product "IAutomate" -project "IAutomate_${{ github.run_number }}_${{ env.scandate }}"
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: secure-build
+          path: |
+            src/MyApp/MyApp/bin/Release/
+            build-manifest.txt
+            build-hashes.txt
+            dependencies.txt
+            retention-days: 7
+      #       attestation.json
+            
+
+      # - name: Upload Build Manifest to Security Tab
+      #   uses: github/codeql-action/upload-sarif@v2
+      #   with:
+      #     sarif_file: attestation.json
+      #     category: build-attestation

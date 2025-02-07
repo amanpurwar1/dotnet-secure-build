@@ -42,15 +42,15 @@ jobs:
           
       - name: Verify Dependencies
         run: |
-          # First ensure the project exists
-          if (Test-Path "MyApp.csproj") {
-            $projectPath = "MyApp.csproj"
-          } elseif (Test-Path "src\MyApp.csproj") {
-            $projectPath = "src\MyApp.csproj"
-          } else {
-            Write-Error "Could not find project file"
-            exit 1
-          }
+          # # First ensure the project exists
+          # if (Test-Path "MyApp.csproj") {
+          #   $projectPath = "MyApp.csproj"
+          # } elseif (Test-Path "src\MyApp.csproj") {
+          #   $projectPath = "src\MyApp.csproj"
+          # } else {
+          #   Write-Error "Could not find project file"
+          #   exit 1
+          # }
           
           dotnet list $projectPath package --include-transitive > dependencies.txt
           dotnet restore $projectPath

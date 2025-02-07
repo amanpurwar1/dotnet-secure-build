@@ -1,5 +1,4 @@
-name: .NET Secure Build
-
+name: .NET Secure Build with Installer
 on:
   push:
     branches:
@@ -7,12 +6,10 @@ on:
   pull_request:
     branches:
       - main
-
 permissions:
   id-token: write
   contents: read
   security-events: write
-
 jobs:
   build-and-secure:
     runs-on: windows-latest
@@ -26,78 +23,97 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0  # Full history for better provenance
-
+          
       - name: Setup .NET
         uses: actions/setup-dotnet@v3
         with:
           dotnet-version: 8.0.x
-
+          
+      - name: Setup WiX Toolset
+        run: |
+          # Download and install WiX toolset
+          Invoke-WebRequest -Uri https://github.com/wixtoolset/wix3/releases/download/wix3112rtm/wix311.exe -OutFile wix311.exe
+          Start-Process -FilePath .\wix311.exe -ArgumentList '/install','/quiet' -Wait
+          
       - name: Generate Build Manifest
         run: |
           echo "Build started at: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')" > build-manifest.txt
           echo "Repository: ${{ github.repository }}" >> build-manifest.txt
           echo "Commit: ${{ github.sha }}" >> build-manifest.txt
           echo "Branch: ${{ github.ref }}" >> build-manifest.txt
-
+          
       - name: Verify Dependencies
         run: |
           dotnet list src/MyApp/MyApp/MyApp.csproj package --include-transitive > dependencies.txt
           dotnet restore src/MyApp/MyApp/MyApp.csproj --locked-mode
-
+          
       - name: Build
         run: |
-          dotnet build src/MyApp/MyApp/MyApp.csproj --configuration Release --no-restore
+          dotnet publish src/MyApp/MyApp/MyApp.csproj --configuration Release --no-restore --self-contained true -r win-x64 /p:PublishSingleFile=true
           
           # Create build info file
-          Get-ChildItem -Recurse -Filter *.dll -Path src/MyApp/MyApp/bin/Release/ | ForEach-Object {
+          Get-ChildItem -Recurse -Filter *.dll,*.exe -Path src/MyApp/MyApp/bin/Release/net8.0/win-x64/publish/ | ForEach-Object {
             $hash = (Get-FileHash -Path $_.FullName -Algorithm SHA256).Hash
             "$($_.Name) - $hash" >> build-hashes.txt
           }
-
+          
       - name: Run Tests
         run: |
           dotnet test src/MyApp/MyApp/MyApp.csproj --configuration Release --no-build --verbosity normal
-
-      # - name: WhiteSource Scan
-      #   env:
-      #     WS_APIKEY: ${{ secrets.WHITESOURCE_API_KEY }}
-      #     WS_USERKEY: ${{ secrets.WHITESOURCE_USER_KEY }}
-      #     WS_PROJECTNAME: ${{ github.repository }}
-      #     WS_PRODUCTNAME: "MyApp"
-      #   run: |
-      #     # Download WhiteSource Unified Agent
-      #     Invoke-WebRequest -Uri https://unified-agent.s3.amazonaws.com/wss-unified-agent.jar -OutFile wss-unified-agent.jar
           
-      #     # Create config file
-      #     @"
-      #     resolveAllDependencies=true
-      #     projectName=${env:WS_PROJECTNAME}
-      #     productName=${env:WS_PRODUCTNAME}
-      #     wss.url=https://saas.whitesourcesoftware.com/agent
-      #     includes=**/*.dll
-      #     "@ | Out-File -FilePath wss-unified-agent.config -Encoding UTF8
+      - name: Create Installer
+        run: |
+          # Create a WiX project file (product.wxs)
+          @"
+          <?xml version='1.0' encoding='UTF-8'?>
+          <Wix xmlns='http://schemas.microsoft.com/wix/2006/wi'>
+            <Product Name='MyApp' Manufacturer='Your Company'
+                     Id='*' UpgradeCode='12345678-1234-1234-1234-123456789012'
+                     Language='1033' Codepage='1252' Version='1.0.0'>
+              <Package Id='*' Keywords='Installer' Description='MyApp Installer'
+                       Comments='MyApp is a registered trademark of Your Company' 
+                       Manufacturer='Your Company' InstallerVersion='100' Languages='1033' 
+                       Compressed='yes' SummaryCodepage='1252' />
+              <Media Id='1' Cabinet='Sample.cab' EmbedCab='yes' DiskPrompt='CD-ROM #1' />
+              <Directory Id='TARGETDIR' Name='SourceDir'>
+                <Directory Id='ProgramFilesFolder' Name='PFiles'>
+                  <Directory Id='MyCompany' Name='Your Company'>
+                    <Directory Id='INSTALLDIR' Name='MyApp'>
+                      <Component Id='MainExecutable' Guid='12345678-1234-1234-1234-123456789012'>
+                        <File Id='MyAppEXE' Name='MyApp.exe' DiskId='1' 
+                              Source='src/MyApp/MyApp/bin/Release/net8.0/win-x64/publish/MyApp.exe' 
+                              KeyPath='yes' />
+                      </Component>
+                    </Directory>
+                  </Directory>
+                </Directory>
+              </Directory>
+              <Feature Id='Complete' Level='1'>
+                <ComponentRef Id='MainExecutable' />
+              </Feature>
+            </Product>
+          </Wix>
+          "@ | Out-File -FilePath product.wxs -Encoding UTF8
           
-      #     # Run WhiteSource scan
-      #     java -jar wss-unified-agent.jar -c wss-unified-agent.config -d src/MyApp/MyApp/bin/Release/
+          # Build the installer
+          & 'C:\Program Files (x86)\WiX Toolset v3.11\bin\candle.exe' product.wxs
+          & 'C:\Program Files (x86)\WiX Toolset v3.11\bin\light.exe' product.wixobj
           
-      #     # Add scan results to build manifest
-      #     echo "WhiteSource Scan completed at: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')" >> build-manifest.txt
-
       - name: Generate Build Hash
         id: hash
         run: |
           $buildHash = (Get-FileHash -Path "build-hashes.txt" -Algorithm SHA256).Hash
           echo "build_sha=$buildHash" >> $env:GITHUB_OUTPUT
           echo "Build Hash: $buildHash" >> build-manifest.txt
-
+          
       - name: Upload Build Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: secure-build
           path: |
-            src/MyApp/MyApp/bin/Release/
+            src/MyApp/MyApp/bin/Release/net8.0/win-x64/publish/
+            product.msi
             build-manifest.txt
             build-hashes.txt
             dependencies.txt
-            wss-unified-agent.config
           retention-days: 10

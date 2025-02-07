@@ -58,30 +58,30 @@ jobs:
         run: |
           dotnet test src/MyApp/MyApp/MyApp.csproj --configuration Release --no-build --verbosity normal
 
-      - name: WhiteSource Scan
-        env:
-          WS_APIKEY: ${{ secrets.WHITESOURCE_API_KEY }}
-          WS_USERKEY: ${{ secrets.WHITESOURCE_USER_KEY }}
-          WS_PROJECTNAME: ${{ github.repository }}
-          WS_PRODUCTNAME: "MyApp"
-        run: |
-          # Download WhiteSource Unified Agent
-          Invoke-WebRequest -Uri https://unified-agent.s3.amazonaws.com/wss-unified-agent.jar -OutFile wss-unified-agent.jar
+      # - name: WhiteSource Scan
+      #   env:
+      #     WS_APIKEY: ${{ secrets.WHITESOURCE_API_KEY }}
+      #     WS_USERKEY: ${{ secrets.WHITESOURCE_USER_KEY }}
+      #     WS_PROJECTNAME: ${{ github.repository }}
+      #     WS_PRODUCTNAME: "MyApp"
+      #   run: |
+      #     # Download WhiteSource Unified Agent
+      #     Invoke-WebRequest -Uri https://unified-agent.s3.amazonaws.com/wss-unified-agent.jar -OutFile wss-unified-agent.jar
           
-          # Create config file
-          @"
-          resolveAllDependencies=true
-          projectName=${env:WS_PROJECTNAME}
-          productName=${env:WS_PRODUCTNAME}
-          wss.url=https://saas.whitesourcesoftware.com/agent
-          includes=**/*.dll
-          "@ | Out-File -FilePath wss-unified-agent.config -Encoding UTF8
+      #     # Create config file
+      #     @"
+      #     resolveAllDependencies=true
+      #     projectName=${env:WS_PROJECTNAME}
+      #     productName=${env:WS_PRODUCTNAME}
+      #     wss.url=https://saas.whitesourcesoftware.com/agent
+      #     includes=**/*.dll
+      #     "@ | Out-File -FilePath wss-unified-agent.config -Encoding UTF8
           
-          # Run WhiteSource scan
-          java -jar wss-unified-agent.jar -c wss-unified-agent.config -d src/MyApp/MyApp/bin/Release/
+      #     # Run WhiteSource scan
+      #     java -jar wss-unified-agent.jar -c wss-unified-agent.config -d src/MyApp/MyApp/bin/Release/
           
-          # Add scan results to build manifest
-          echo "WhiteSource Scan completed at: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')" >> build-manifest.txt
+      #     # Add scan results to build manifest
+      #     echo "WhiteSource Scan completed at: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')" >> build-manifest.txt
 
       - name: Generate Build Hash
         id: hash

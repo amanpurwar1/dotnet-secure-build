@@ -22,18 +22,16 @@ jobs:
         uses: actions/checkout@v4
         with:
           persist-credentials: false
-          fetch-depth: 0  # Full history for better provenance
+          fetch-depth: 0
           
       - name: Setup .NET
         uses: actions/setup-dotnet@v3
         with:
           dotnet-version: 8.0.x
           
-      - name: Setup WiX Toolset
+      - name: List Directory Structure
         run: |
-          # Download and install WiX toolset
-          Invoke-WebRequest -Uri https://github.com/wixtoolset/wix3/releases/download/wix3112rtm/wix311.exe -OutFile wix311.exe
-          Start-Process -FilePath .\wix311.exe -ArgumentList '/install','/quiet' -Wait
+          dir /s /b
           
       - name: Generate Build Manifest
         run: |
@@ -44,22 +42,61 @@ jobs:
           
       - name: Verify Dependencies
         run: |
-          dotnet list src/MyApp/MyApp/MyApp.csproj package --include-transitive > dependencies.txt
-          dotnet restore src/MyApp/MyApp/MyApp.csproj --locked-mode
+          # First ensure the project exists
+          if (Test-Path "MyApp.csproj") {
+            $projectPath = "MyApp.csproj"
+          } elseif (Test-Path "src\MyApp.csproj") {
+            $projectPath = "src\MyApp.csproj"
+          } else {
+            Write-Error "Could not find project file"
+            exit 1
+          }
+          
+          dotnet list $projectPath package --include-transitive > dependencies.txt
+          dotnet restore $projectPath
           
       - name: Build
         run: |
-          dotnet publish src/MyApp/MyApp/MyApp.csproj --configuration Release --no-restore --self-contained true -r win-x64 /p:PublishSingleFile=true
+          # Use the same project path logic
+          if (Test-Path "MyApp.csproj") {
+            $projectPath = "MyApp.csproj"
+          } elseif (Test-Path "src\MyApp.csproj") {
+            $projectPath = "src\MyApp.csproj"
+          } else {
+            Write-Error "Could not find project file"
+            exit 1
+          }
+          
+          dotnet publish $projectPath `
+            --configuration Release `
+            --runtime win-x64 `
+            --self-contained true `
+            /p:PublishSingleFile=true
           
           # Create build info file
-          Get-ChildItem -Recurse -Filter *.dll,*.exe -Path src/MyApp/MyApp/bin/Release/net8.0/win-x64/publish/ | ForEach-Object {
+          Get-ChildItem -Recurse -Filter *.dll,*.exe -Path bin/Release/net8.0/win-x64/publish/ | ForEach-Object {
             $hash = (Get-FileHash -Path $_.FullName -Algorithm SHA256).Hash
             "$($_.Name) - $hash" >> build-hashes.txt
           }
           
       - name: Run Tests
         run: |
-          dotnet test src/MyApp/MyApp/MyApp.csproj --configuration Release --no-build --verbosity normal
+          if (Test-Path "MyApp.csproj") {
+            $projectPath = "MyApp.csproj"
+          } elseif (Test-Path "src\MyApp.csproj") {
+            $projectPath = "src\MyApp.csproj"
+          } else {
+            Write-Error "Could not find project file"
+            exit 1
+          }
+          
+          dotnet test $projectPath --configuration Release --verbosity normal
+          
+      - name: Setup WiX Toolset
+        run: |
+          # Download and install WiX toolset
+          Invoke-WebRequest -Uri https://github.com/wixtoolset/wix3/releases/download/wix3112rtm/wix311.exe -OutFile wix311.exe
+          Start-Process -FilePath .\wix311.exe -ArgumentList '/install','/quiet' -Wait
           
       - name: Create Installer
         run: |
@@ -81,7 +118,7 @@ jobs:
                     <Directory Id='INSTALLDIR' Name='MyApp'>
                       <Component Id='MainExecutable' Guid='12345678-1234-1234-1234-123456789012'>
                         <File Id='MyAppEXE' Name='MyApp.exe' DiskId='1' 
-                              Source='src/MyApp/MyApp/bin/Release/net8.0/win-x64/publish/MyApp.exe' 
+                              Source='bin/Release/net8.0/win-x64/publish/MyApp.exe' 
                               KeyPath='yes' />
                       </Component>
                     </Directory>
@@ -111,7 +148,7 @@ jobs:
         with:
           name: secure-build
           path: |
-            src/MyApp/MyApp/bin/Release/net8.0/win-x64/publish/
+            bin/Release/net8.0/win-x64/publish/
             product.msi
             build-manifest.txt
             build-hashes.txt

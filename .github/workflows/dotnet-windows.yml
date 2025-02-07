@@ -29,9 +29,9 @@ jobs:
         with:
           dotnet-version: 8.0.x
           
-      - name: List Directory Structure
-        run: |
-          dir /s /b
+      # - name: List Directory Structure
+      #   run: |
+      #     dir /s /b
           
       - name: Generate Build Manifest
         run: |
